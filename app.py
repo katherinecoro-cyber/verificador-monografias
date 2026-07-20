@@ -3,10 +3,10 @@ import pandas as pd
 import unicodedata
 import re
 
-# ID de tu Google Sheet centralizado (Verificado)
+# ID de tu Google Sheet (Verificado)
 SPREADSHEET_ID = "1s09hCW4sL9hQQbKmT793vFZKKEjDn07p" 
 
-# Lista de pestañas de tu documento de monografías
+# Lista de pestañas oficiales del documento
 PESTANAS = [
     '1. DIP. EMPR. INNOV. EMP.', '2. DIP. DIAG. INT. CA. VIO. SEX', '3. DIP. RED. TEL. G-1', 
     '4. DIP. DIS. GRAF. MUL. FOT.', '5. DIP. RED. TEL. G-2', '6. DIP. EDU. GES. CEN. EDU. MAE', 
@@ -30,78 +30,64 @@ PESTANAS = [
 ]
 
 def tokenizar_y_limpiar(texto):
-    """Limpia el texto, quita acentos, conectores y extrae conceptos core de investigación"""
+    """Filtra y extrae las palabras conceptuales puras quitando conectores y términos metodológicos"""
     if pd.isna(texto):
         return set()
     texto = str(texto).lower()
-    # Quitar acentos/tildes
     texto = ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
-    # Dejar solo letras y números
     palabras = re.findall(r'[a-z0-9ñ]+', texto)
     
-    # Exclusión de conectores y términos metodológicos que se repiten en todas las monografías
     exclusiones = {
         'en', 'de', 'y', 'la', 'el', 'con', 'para', 'del', 'los', 'las', 'un', 'una', 'al', 'por', 'sobre',
         'diplomado', 'curso', 'programa', 'gestion', 'aplicada', 'avanzado', 'especialidad',
-        'revision', 'bibliografica', 'estudio', 'analisis', 'monografia', 'propuesta', 'diseno',
-        'estrategia', 'estrategias', 'implementacion', 'evaluacion', 'caso', 'uap', 'sucre', 'bolivia'
+        'revision', 'bibliografica', 'estudio', 'analisis', 'monografia', 'propuesta', 'diseno', 'revicion',
+        'estrategia', 'estrategias', 'implementacion', 'evaluacion', 'caso', 'uap', 'sucre', 'bolivia', 'a', 'traves'
     }
     return {p for p in palabras if p not in exclusiones and len(p) > 2}
 
 def calcular_similitud_semantica(set_nuevo, set_existente):
-    """Calcula el porcentaje de coincidencia conceptual (Índice Jaccard)"""
+    """Mide la intersección de conceptos core sobre el tamaño del título propuesto"""
     if not set_nuevo or not set_existente:
         return 0.0
     interseccion = set_nuevo.intersection(set_existente)
-    union = set_nuevo.union(set_existente)
-    return len(interseccion) / len(union)
+    return len(interseccion) / len(set_nuevo)
 
-# Configuración de Streamlit
 st.set_page_config(page_title="Verificador de Monografías UAP", page_icon="🛡️", layout="centered")
 
-st.title("🛡️ Verificador Inteligente de Monografías")
-st.write("Conectado en vivo a Google Sheets. Si el tema central ya existe, la propuesta será rechazada.")
+st.title("🛡️ Sistema Antiduplicidad de Monografías - UAP")
+st.write("Filtro inteligente de control académico. Si el tema o núcleo de investigación ya existe, será rechazado.")
 st.markdown("---")
 
-nuevo_titulo = st.text_input("Escribe el nombre de la nueva monografía a evaluar:")
+nuevo_titulo = st.text_input("📝 Ingrese el TÍTULO de la nueva monografía a evaluar:")
 
-if st.button("Verificar Originalidad de Propuesta", type="primary") and nuevo_titulo:
+if st.button("🔍 Validar Originalidad del Tema", type="primary") and nuevo_titulo:
     todos_los_titulos = []
     total_registros = 0
     
-    with st.spinner("Leyendo datos en tiempo real desde Google Sheets..."):
+    with st.spinner("Conectando con Google Sheets y extrayendo registros..."):
         for pestana in PESTANAS:
-            # Enlace de lectura en formato CSV directo por pestaña
-            url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet={pestana.replace(' ', '%20')}"
+            # CAMBIO CLAVE: Cambiamos tq por tq?gid=... para evitar el error de celdas combinadas de arriba
+            # Solicitamos los datos limpios saltando las primeras 4 filas de títulos institucionales
+            url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&headers=1&range=A5:K500&sheet={pestana.replace(' ', '%20')}"
             try:
-                # Leemos la hoja completa sin asumir dónde están los encabezados
-                df = pd.read_csv(url, header=None)
+                df = pd.read_csv(url)
+                df.columns = df.columns.astype(str).str.strip().str.upper()
                 
-                columna_buscar_idx = None
-                fila_datos_inicio = 0
-                
-                # Buscamos dinámicamente en qué columna y fila está la palabra "TÍTULO" o "MONOGRAFÍA"
-                for r_idx in range(min(7, len(df))):
-                    for c_idx in range(len(df.columns)):
-                        celda = str(df.iloc[r_idx, c_idx]).upper()
-                        if "MONOGRAF" in celda or "TÍTULO" in celda or "TITULO" in celda:
-                            columna_buscar_idx = c_idx
-                            fila_datos_inicio = r_idx + 1
-                            break
-                    if columna_buscar_idx is not None:
+                # Buscamos de forma flexible la columna correspondiente
+                columna_buscar = ""
+                for col in df.columns:
+                    if "MONOGRAF" in col or "TITULO" in col or "TÍTULO" in col:
+                        columna_buscar = col
                         break
                 
-                # Si una pestaña viene desconfigurada, por defecto la columna F (índice 5) guarda las monografías
-                if columna_buscar_idx is None and len(df.columns) > 5:
-                    columna_buscar_idx = 5
-                    fila_datos_inicio = 4
+                # Si gviz falló renombrando la columna, por la estructura sabemos que es la sexta columna (Índice 5)
+                if not columna_buscar and len(df.columns) > 5:
+                    columna_buscar = df.columns[5]
                 
-                # Si encontramos la columna, extraemos sus textos limpios
-                if columna_buscar_idx is not None:
-                    for nombre in df.iloc[fila_datos_inicio:, columna_buscar_idx].dropna():
+                if columna_buscar:
+                    for nombre in df[columna_buscar].dropna():
                         n_str = str(nombre).strip()
-                        # Filtro estricto para ignorar las filas de firmas, números de páginas o celdas vacías
-                        if (n_str and len(n_str) > 12 and 
+                        if (n_str and len(n_str) > 10 and 
                             "TÍTULO" not in n_str.upper() and 
                             "MONOGRAFÍA" not in n_str.upper() and 
                             "UNIVERSIDAD" not in n_str.upper()):
@@ -115,44 +101,48 @@ if st.button("Verificar Originalidad de Propuesta", type="primary") and nuevo_ti
             except:
                 continue
 
-    st.caption(f"📊 Control de Calidad: **{total_registros}** monografías analizadas en vivo.")
+    # Indicador de estado en pantalla
+    st.caption(f"📊 Control de calidad: **{total_registros}** monografías históricas analizadas en tiempo real.")
 
-    # Analizar similitudes
-    tokens_nuevos = tokenizar_y_limpiar(nuevo_titulo)
-    coincidencias_peligrosas = []
-    
-    for item in todos_los_titulos:
-        # Validación 1: Copia exacta directa (quitando espacios dobles)
-        t_nuevo_norm = re.sub(r'\s+', ' ', nuevo_titulo.strip().upper())
-        t_orig_norm = re.sub(r'\s+', ' ', item["nombre_original"].strip().upper())
-        
-        if t_nuevo_norm == t_orig_norm:
-            coincidencias_peligrosas.append({**item, "porcentaje": 100})
-            continue
-            
-        # Validación 2: Similitud por núcleo de palabras clave temáticas (Ignorando la metodología)
-        porcentaje = calcular_similitud_semantica(tokens_nuevos, item["tokens"])
-        
-        # Umbral del 40% (idéntico a tu verificador de proyectos exitoso)
-        if porcentaje >= 0.40: 
-            coincidencias_peligrosas.append({**item, "porcentaje": int(porcentaje * 100)})
-
-    # Mostrar Resultados estrictos (Rechazo / Aprobación)
-    if coincidencias_peligrosas:
-        coincidencias_peligrosas = sorted(coincidencias_peligrosas, key=lambda x: x['porcentaje'], reverse=True)
-        
-        st.error("🚨 **RECHAZADO: TEMA DUPLICADO O YA EXISTENTE**")
-        st.write("---")
-        st.subheader("❌ Conflictos de Similitud Detectados:")
-        
-        for c in coincidencias_peligrosas[:3]:
-            st.warning(
-                f"📌 **Título Registrado**: {c['nombre_original']}\n\n"
-                f"📂 **Ubicación**: Pestaña *'{c['pestana']}'*\n"
-                f"📊 **Grado de Coincidencia en Conceptos**: `{c['porcentaje']}%`"
-            )
-            st.markdown("---")
+    if total_registros == 0:
+        st.error("⚠️ Error crítico: No se pudieron extraer datos desde Google Sheets. Verifica los permisos de compartir en tu documento.")
     else:
-        st.success("✅ **TEMA APROBADO**")
-        st.balloons()
-        st.markdown(f"> **El título propuesto:** *\"{nuevo_titulo}\"* es original y no presenta conflictos con las investigaciones registradas en Google Sheets.")
+        # Análisis de Coincidencias Críticas
+        tokens_nuevos = tokenizar_y_limpiar(nuevo_titulo)
+        coincidencias_peligrosas = []
+        
+        for item in todos_los_titulos:
+            # Validación estricta 1: Copia exacta limpia
+            t_nuevo_norm = re.sub(r'\s+', ' ', nuevo_titulo.strip().upper())
+            t_orig_norm = re.sub(r'\s+', ' ', item["nombre_original"].strip().upper())
+            
+            if t_nuevo_norm == t_orig_norm:
+                coincidencias_peligrosas.append({**item, "porcentaje": 100})
+                continue
+                
+            # Validación estricta 2: Similitud conceptual core
+            porcentaje = calcular_similitud_semantica(tokens_nuevos, item["tokens"])
+            
+            # Si el nuevo título comparte un 55% o más de sus conceptos clave con uno viejo -> Alerta de Plagio/Duplicado
+            if porcentaje >= 0.55: 
+                coincidencias_peligrosas.append({**item, "porcentaje": int(porcentaje * 100)})
+
+        # ---- Lógica del Verificador de Proyectos (Bloqueo / Rechazo) ----
+        if coincidencias_peligrosas:
+            coincidencias_peligrosas = sorted(coincidencias_peligrosas, key=lambda x: x['porcentaje'], reverse=True)
+            
+            st.error("🚨 **RECHAZADO: TEMA DUPLICADO O YA EXISTENTE**")
+            st.write("---")
+            st.subheader("❌ Conflictos de Similitud Detectados:")
+            
+            for c in coincidencias_peligrosas[:3]:
+                st.warning(
+                    f"📌 **Título Registrado**: {c['nombre_original']}\n\n"
+                    f"📂 **Ubicación en Base de Datos**: Pestaña *'{c['pestana']}'*\n"
+                    f"📊 **Grado de Coincidencia en Conceptos**: `{c['porcentaje']}%`"
+                )
+                st.markdown("---")
+        else:
+            st.success("✅ **TEMA APROBADO**")
+            st.balloons()
+            st.markdown(f"> **El título propuesto:** *\"{nuevo_titulo}\"* presenta un enfoque de investigación original y no duplica el historial registrado.")
