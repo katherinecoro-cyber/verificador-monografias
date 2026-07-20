@@ -5,7 +5,7 @@ import re
 import requests
 
 # Configuración automática con tu ID de Google Sheets de Monografías
-SPREADSHEET_ID = "1T14RPJ97kAll4_hcCUWIePB11N6AR7s5bwAJ-tltlTg" 
+SPREADSHEET_ID = "1s09hCW4sL9hQQbKmT793vFZKKEjDn07p" 
 
 def obtener_pestanas_dinamicas(spreadsheet_id):
     """Obtiene la lista de todas las pestañas de forma automática desde Google Sheets"""
