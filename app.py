@@ -2,32 +2,11 @@ import streamlit as st
 import pandas as pd
 import unicodedata
 import re
+import requests
+import io
 
-# ID de tu Google Sheet (Verificado)
+# 🚨 NUEVO ID CORRECTO (Extraído de tu enlace)
 SPREADSHEET_ID = "1s09hCW4sL9hQQbKmT793vFZKKEjDn07p" 
-
-# Lista de pestañas oficiales del documento
-PESTANAS = [
-    '1. DIP. EMPR. INNOV. EMP.', '2. DIP. DIAG. INT. CA. VIO. SEX', '3. DIP. RED. TEL. G-1', 
-    '4. DIP. DIS. GRAF. MUL. FOT.', '5. DIP. RED. TEL. G-2', '6. DIP. EDU. GES. CEN. EDU. MAE', 
-    '7. DIP. PSI. DIDC.  EDU', '8. DIP. GES. MED. INT.', '9. DIP. RED. TEL. G3', 
-    '10. DIP. GES, RIS. FIN. IA.', '11. DIP. TOP. CAR. TEC. LI.', '12. DIP. EDU. ESP. LSB. G1', 
-    '13. DIP. SUP. COM.TEC.G-8', '14. DIP. EDU.ESP.LE.SE.G-2', '15.DIP.RED.TEL.G-4', 
-    '16.DIP.EDU.ESP.LEN.SE.G3', '17. DIP. DIS.CONS.M. SITIOS WEB', '18. DIP. ESTAD. MATE V-II G-1', 
-    '19. DIP. EDU.ESP.TEA.G1 ', '20.DIP. NEFRO.D.H. G-5 ', '21. DIP. TOP.CART.G-2', 
-    '22.DIP.HORMIGÓN ARMADO', '23.DIP.LENG.SEÑAS V2 G1', '24.DIP.EDU.E.M.TEA G-2', 
-    '25.DIP.DISEÑO GRAFICO G-2', '26. DIP.HIDRAULICA G-1', '27.DIP.METODOLOGIA G-6', 
-    '28.DIP TOPO Y CART G3', '29.DIP.PSICOTE.3RA GEN. G-1', '30.DIP. ING.ESTR.PATOLOGIA Y RE', 
-    '31. DIP. CIVIL 3D G-1', '32.DIP.ABORDAJES PSICOLOGICO G-', '33.DIP.PSICOMOTRICIDAD G-2', 
-    '34.DIP. METODOLOGIA DE INVES. G', '35.DIP. CIVIL 3D G-2', '36.DIP RESOLUCION DE CONFLICTOS', 
-    '37.DIP. ING. HIDRAULICA G-2', '38.DIP. CIVIL 3D G-3', '39.DIP. CIENCIAS FORENSES G-1', 
-    '40.DIP. GERENCIA BIM G-1', '41. DIP. PLANTAS INDUSTRIALES V', '42. DIP. BIOMEDICOS G-3', 
-    '43.DIP.PSICOMOTRICIDAD V-II G-1', '44.DIP. PSICOTERAPIAS 3RA GEN. ', '45.DIP.SIG CON .TELEDETECCION  ', 
-    '46.DIP.SISMORESIS G1', '47.DIP. TECNICAS PSICOMETRICAS ', '48.DIP. METODOLOGIA INV. VII G1', 
-    '49.DIP EDU.SUP.B.C.TEC.VII G3', '50.DIP.ING.SANITARIA VI G1', '51.DIP. PSICOTERAPIAS G3', 
-    '52.DIP. AUTOMATIZACION', '53.DIP.ESTADISTICA MAT VIII', '54.DIPL.SIST.INF.BACHILLERATO.T', 
-    '55.DIP. PUENTES', '56.DIP CIVIL 3D G4', '57.DIPLOMADO EN HIDROPONIA', '58.DIPLOMADO METODOLOGIA VII G3'
-]
 
 def tokenizar_y_limpiar(texto):
     """Filtra y extrae las palabras conceptuales puras quitando conectores y términos metodológicos"""
@@ -55,7 +34,7 @@ def calcular_similitud_semantica(set_nuevo, set_existente):
 st.set_page_config(page_title="Verificador de Monografías UAP", page_icon="🛡️", layout="centered")
 
 st.title("🛡️ Sistema Antiduplicidad de Monografías - UAP")
-st.write("Filtro inteligente de control académico. Si el tema o núcleo de investigación ya existe, será rechazado.")
+st.write("Filtro inteligente de control académico conectado a tu Google Sheet. Si el tema central ya existe, la propuesta será rechazada.")
 st.markdown("---")
 
 nuevo_titulo = st.text_input("📝 Ingrese el TÍTULO de la nueva monografía a evaluar:")
@@ -64,49 +43,68 @@ if st.button("🔍 Validar Originalidad del Tema", type="primary") and nuevo_tit
     todos_los_titulos = []
     total_registros = 0
     
-    with st.spinner("Conectando con Google Sheets y extrayendo registros..."):
-        for pestana in PESTANAS:
-            # CAMBIO CLAVE: Cambiamos tq por tq?gid=... para evitar el error de celdas combinadas de arriba
-            # Solicitamos los datos limpios saltando las primeras 4 filas de títulos institucionales
-            url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&headers=1&range=A5:K500&sheet={pestana.replace(' ', '%20')}"
-            try:
-                df = pd.read_csv(url)
-                df.columns = df.columns.astype(str).str.strip().str.upper()
+    with st.spinner("Conectando en tiempo real con Google Sheets y analizando pestañas..."):
+        try:
+            # Exportamos el archivo completo de Google Sheets a la memoria para extraer las pestañas dinámicamente
+            url_export = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=xlsx"
+            response = requests.get(url_export)
+            
+            if response.status_code == 200:
+                excel_memoria = pd.ExcelFile(io.BytesIO(response.content))
+                # ¡Aquí obtenemos todas las pestañas de tu documento automáticamente!
+                todas_las_pestanas = excel_memoria.sheet_names
                 
-                # Buscamos de forma flexible la columna correspondiente
-                columna_buscar = ""
-                for col in df.columns:
-                    if "MONOGRAF" in col or "TITULO" in col or "TÍTULO" in col:
-                        columna_buscar = col
-                        break
-                
-                # Si gviz falló renombrando la columna, por la estructura sabemos que es la sexta columna (Índice 5)
-                if not columna_buscar and len(df.columns) > 5:
-                    columna_buscar = df.columns[5]
-                
-                if columna_buscar:
-                    for nombre in df[columna_buscar].dropna():
-                        n_str = str(nombre).strip()
-                        if (n_str and len(n_str) > 10 and 
-                            "TÍTULO" not in n_str.upper() and 
-                            "MONOGRAFÍA" not in n_str.upper() and 
-                            "UNIVERSIDAD" not in n_str.upper()):
-                            
-                            todos_los_titulos.append({
-                                "nombre_original": n_str,
-                                "tokens": tokenizar_y_limpiar(n_str),
-                                "pestana": pestana
-                            })
-                            total_registros += 1
-            except:
-                continue
+                for pestana in todas_las_pestanas:
+                    # Ignoramos pestañas genéricas que no sean de los diplomados si existen
+                    if pestana.upper() in ['DIP', 'DIP 2', 'DIP 3', 'HOJA 1']:
+                        continue
+                    
+                    # Leemos la hoja saltando las filas superiores de títulos institucionales
+                    df = pd.read_excel(excel_memoria, sheet_name=pestana, header=None)
+                    
+                    columna_buscar_idx = None
+                    fila_datos_inicio = 0
+                    
+                    # Buscamos en qué columna y fila está la cabecera real de las monografías
+                    for r_idx in range(min(7, len(df))):
+                        for c_idx in range(len(df.columns)):
+                            celda = str(df.iloc[r_idx, c_idx]).upper()
+                            if "MONOGRAF" in celda or "TÍTULO" in celda or "TITULO" in celda:
+                                columna_buscar_idx = c_idx
+                                fila_datos_inicio = r_idx + 1
+                                break
+                        if columna_buscar_idx is not None:
+                            break
+                    
+                    # Si no encuentra por texto, por el formato estándar de tus hojas usamos la columna F (Índice 5)
+                    if columna_buscar_idx is None and len(df.columns) > 5:
+                        columna_buscar_idx = 5
+                        fila_datos_inicio = 4
+                    
+                    if columna_buscar_idx is not None:
+                        for nombre in df.iloc[fila_datos_inicio:, columna_buscar_idx].dropna():
+                            n_str = str(nombre).strip()
+                            # Filtro estricto para limpiar celdas vacías o con textos de formato
+                            if (n_str and len(n_str) > 12 and 
+                                "TÍTULO" not in n_str.upper() and 
+                                "MONOGRAFÍA" not in n_str.upper() and 
+                                "UNIVERSIDAD" not in n_str.upper()):
+                                
+                                todos_los_titulos.append({
+                                    "nombre_original": n_str,
+                                    "tokens": tokenizar_y_limpiar(n_str),
+                                    "pestana": pestana
+                                })
+                                total_registros += 1
+            else:
+                st.error("❌ No se pudo acceder al Google Sheet. Asegúrate de que esté compartido como 'Cualquier persona con el enlace'.")
+        except Exception as e:
+            st.error(f"⚠️ Ocurrió un error al procesar el archivo: {str(e)}")
 
     # Indicador de estado en pantalla
-    st.caption(f"📊 Control de calidad: **{total_registros}** monografías históricas analizadas en tiempo real.")
+    st.caption(f"📊 Control de Calidad: **{total_registros}** monografías históricas analizadas en vivo.")
 
-    if total_registros == 0:
-        st.error("⚠️ Error crítico: No se pudieron extraer datos desde Google Sheets. Verifica los permisos de compartir en tu documento.")
-    else:
+    if total_registros > 0:
         # Análisis de Coincidencias Críticas
         tokens_nuevos = tokenizar_y_limpiar(nuevo_titulo)
         coincidencias_peligrosas = []
@@ -123,8 +121,8 @@ if st.button("🔍 Validar Originalidad del Tema", type="primary") and nuevo_tit
             # Validación estricta 2: Similitud conceptual core
             porcentaje = calcular_similitud_semantica(tokens_nuevos, item["tokens"])
             
-            # Si el nuevo título comparte un 55% o más de sus conceptos clave con uno viejo -> Alerta de Plagio/Duplicado
-            if porcentaje >= 0.55: 
+            # Umbral del 45% para que sea igual de estricto que tu verificador anterior
+            if porcentaje >= 0.45: 
                 coincidencias_peligrosas.append({**item, "porcentaje": int(porcentaje * 100)})
 
         # ---- Lógica del Verificador de Proyectos (Bloqueo / Rechazo) ----
