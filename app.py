@@ -4,7 +4,7 @@ import unicodedata
 import re
 
 # Tu ID de Google Sheets (Verificado)
-SPREADSHEET_ID = "1T14RPJ97kAll4_hcCUWIePB11N6AR7s5bwAJ-tltlTg" 
+SPREADSHEET_ID = "1s09hCW4sL9hQQbKmT793vFZKKEjDn07p" 
 
 # Lista completa de todas las pestañas de tu documento de la UAP
 PESTANAS = [
